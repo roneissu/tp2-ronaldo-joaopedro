@@ -1,0 +1,3 @@
+struct virtend{
+	uint what;
+};
