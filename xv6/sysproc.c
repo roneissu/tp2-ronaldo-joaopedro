@@ -95,7 +95,7 @@ int
 sys_date(void)
 {
   struct rtcdate *ptr;
-  argptr(0, (void*)(&ptr), sizeof(*ptr));
+  argptr(0, (void*)(&ptr), sizeof(struct rtcdate*));
   // seu código aqui
   cmostime(ptr);
   return 0;
@@ -104,7 +104,8 @@ sys_date(void)
 int 
 sys_virt2real(void)
 {
-  struct ends *v2r;
-  argptr(0, (void*)(&v2r), sizeof(*v2r));
-  return 0;
+  struct proc *curproc = myproc();
+  argptr(0, &addreal, sizeof(char*));
+  *addreal = *addvirt - (int)(curproc->pgdir);
+  return (uint)addreal;
 }
