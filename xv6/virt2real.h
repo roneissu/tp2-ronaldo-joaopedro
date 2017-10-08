@@ -1,4 +1,2 @@
-struct ends {
-	char* endvirt;
-	char* endreal;
-};
+char* addvirt;
+char* addreal;
