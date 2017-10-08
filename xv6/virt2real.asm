@@ -17,45 +17,43 @@ main(int argc, char *argv[])
    a:	55                   	push   %ebp
    b:	89 e5                	mov    %esp,%ebp
    d:	51                   	push   %ecx
-  struct virtend ve;
+  struct ends v2r;
 
-  if (virt2real(&ve)) {
-   e:	8d 45 f4             	lea    -0xc(%ebp),%eax
+  if (virt2real(&v2r)) {
+   e:	8d 45 f0             	lea    -0x10(%ebp),%eax
 {
   11:	83 ec 20             	sub    $0x20,%esp
-  if (virt2real(&ve)) {
+  if (virt2real(&v2r)) {
   14:	50                   	push   %eax
   15:	e8 30 03 00 00       	call   34a <virt2real>
   1a:	83 c4 10             	add    $0x10,%esp
   1d:	85 c0                	test   %eax,%eax
-  1f:	74 17                	je     38 <main+0x38>
+  1f:	74 18                	je     39 <main+0x39>
     printf(stderr, "Erro na chamada de sistema\n");
-  21:	52                   	push   %edx
-  22:	52                   	push   %edx
-  23:	68 58 07 00 00       	push   $0x758
-  28:	ff 35 1c 0a 00 00    	pushl  0xa1c
-  2e:	e8 cd 03 00 00       	call   400 <printf>
+  21:	83 ec 08             	sub    $0x8,%esp
+  24:	68 58 07 00 00       	push   $0x758
+  29:	ff 35 1c 0a 00 00    	pushl  0xa1c
+  2f:	e8 cc 03 00 00       	call   400 <printf>
     exit();
-  33:	e8 6a 02 00 00       	call   2a2 <exit>
+  34:	e8 69 02 00 00       	call   2a2 <exit>
   }
 
-  printf(stdout, "%d\n", ve.what);
-  38:	50                   	push   %eax
-  39:	ff 75 f4             	pushl  -0xc(%ebp)
-  3c:	68 74 07 00 00       	push   $0x774
-  41:	ff 35 20 0a 00 00    	pushl  0xa20
-  47:	e8 b4 03 00 00       	call   400 <printf>
+  printf(stdout, "%s\n", v2r.endreal);
+  39:	50                   	push   %eax
+  3a:	ff 75 f4             	pushl  -0xc(%ebp)
+  3d:	68 74 07 00 00       	push   $0x774
+  42:	ff 35 20 0a 00 00    	pushl  0xa20
+  48:	e8 b3 03 00 00       	call   400 <printf>
 
   exit();
-  4c:	e8 51 02 00 00       	call   2a2 <exit>
-  51:	66 90                	xchg   %ax,%ax
-  53:	66 90                	xchg   %ax,%ax
-  55:	66 90                	xchg   %ax,%ax
-  57:	66 90                	xchg   %ax,%ax
-  59:	66 90                	xchg   %ax,%ax
-  5b:	66 90                	xchg   %ax,%ax
-  5d:	66 90                	xchg   %ax,%ax
-  5f:	90                   	nop
+  4d:	e8 50 02 00 00       	call   2a2 <exit>
+  52:	66 90                	xchg   %ax,%ax
+  54:	66 90                	xchg   %ax,%ax
+  56:	66 90                	xchg   %ax,%ax
+  58:	66 90                	xchg   %ax,%ax
+  5a:	66 90                	xchg   %ax,%ax
+  5c:	66 90                	xchg   %ax,%ax
+  5e:	66 90                	xchg   %ax,%ax
 
 00000060 <strcpy>:
 #include "user.h"

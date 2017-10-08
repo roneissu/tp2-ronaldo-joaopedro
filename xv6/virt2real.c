@@ -8,14 +8,14 @@ int stderr = 2;
 int
 main(int argc, char *argv[])
 {
-  struct virtend ve;
+  struct ends v2r;
 
-  if (virt2real(&ve)) {
+  if (virt2real(&v2r)) {
     printf(stderr, "Erro na chamada de sistema\n");
     exit();
   }
 
-  printf(stdout, "%d\n", ve.what);
+  printf(stdout, "%s\n", v2r.endreal);
 
   exit();
 }

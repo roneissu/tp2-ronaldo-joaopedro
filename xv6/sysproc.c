@@ -104,8 +104,7 @@ sys_date(void)
 int 
 sys_virt2real(void)
 {
-  struct virtend *v2r;
+  struct ends *v2r;
   argptr(0, (void*)(&v2r), sizeof(*v2r));
-  v2r->what = 2;
   return 0;
 }

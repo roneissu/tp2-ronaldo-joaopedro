@@ -24,8 +24,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int date(void*);
-//char* virt2real(char *va);
-int virt2real(void*);
+char* virt2real(void *va);
 
 // ulib.c
 int stat(char*, struct stat*);

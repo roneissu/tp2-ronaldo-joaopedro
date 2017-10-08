@@ -1,3 +1,4 @@
-struct virtend{
-	uint what;
+struct ends {
+	char* endvirt;
+	char* endreal;
 };
