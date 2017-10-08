@@ -109,3 +109,15 @@ sys_virt2real(void)
   *addreal = *addvirt - (int)(curproc->pgdir);
   return (uint)addreal;
 }
+
+int
+sys_forkcow(void)
+{
+  return forkcow();
+}
+
+int
+sys_num_pages(void)
+{
+  return num_pages();
+}

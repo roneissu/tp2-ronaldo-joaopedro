@@ -68,6 +68,10 @@ char*           kalloc(void);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
+void            incrementReferenceCount(uint);
+uint            numFreePages(void);
+void            decrementReferenceCount(uint);
+uint            getReferenceCount(uint);
 
 // kbd.c
 void            kbdintr(void);
@@ -120,6 +124,8 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+int             forkcow(void);
+int             num_pages(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -185,6 +191,8 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+pde_t*          copyuvmcow(pde_t*, uint);
+void            pagefault(uint);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
