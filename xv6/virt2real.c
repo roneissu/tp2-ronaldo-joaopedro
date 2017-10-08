@@ -5,17 +5,24 @@
 int stdout = 1;
 int stderr = 2;
 
+char* 
+func(char* va)
+{
+
+  printf(stdout, "%d\n", virt2real(va));
+
+  return addreal;
+}
+
 int
 main(int argc, char *argv[])
 {
-  struct ends v2r;
-
-  if (virt2real(&v2r)) {
-    printf(stderr, "Erro na chamada de sistema\n");
+  if(argc <= 1){
+    printf(stdout, "Indique o endereço virtual\n");
     exit();
   }
 
-  printf(stdout, "%s\n", v2r.endreal);
-
+  func(argv[1]);
+  
   exit();
 }
