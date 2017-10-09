@@ -64,14 +64,14 @@ extern uchar    ioapicid;
 void            ioapicinit(void);
 
 // kalloc.c
+void            decrementReferenceCount(uint);
+uint            getReferenceCount(uint);
+void            incrementReferenceCount(uint);
 char*           kalloc(void);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
-void            incrementReferenceCount(uint);
 uint            numFreePages(void);
-void            decrementReferenceCount(uint);
-uint            getReferenceCount(uint);
 
 // kbd.c
 void            kbdintr(void);
@@ -110,6 +110,7 @@ int             pipewrite(struct pipe*, char*, int);
 int             cpuid(void);
 void            exit(void);
 int             fork(void);
+int             forkcow(void);
 int             growproc(int);
 int             kill(int);
 struct cpu*     mycpu(void);
@@ -124,7 +125,6 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-int             forkcow(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -192,8 +192,6 @@ int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 pde_t*          copyuvmcow(pde_t*, uint);
 void            pagefault(uint);
-
-int             num_pages(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

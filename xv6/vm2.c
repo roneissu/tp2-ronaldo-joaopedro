@@ -11,6 +11,7 @@ extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
 char pg_refcount[PHYSTOP >> PGSHIFT];
+
 // Set up CPU's kernel segment descriptors.
 // Run once on entry on each CPU.
 void
@@ -22,12 +23,21 @@ seginit(void)
   // Cannot share a CODE descriptor for both kernel and user
   // because it would have to have DPL_USR, but the CPU forbids
   // an interrupt from CPL=0 to DPL=3.
-  c = &cpus[cpuid()];
+  c = &cpus[cpunum()];
   c->gdt[SEG_KCODE] = SEG(STA_X|STA_R, 0, 0xffffffff, 0);
   c->gdt[SEG_KDATA] = SEG(STA_W, 0, 0xffffffff, 0);
   c->gdt[SEG_UCODE] = SEG(STA_X|STA_R, 0, 0xffffffff, DPL_USER);
   c->gdt[SEG_UDATA] = SEG(STA_W, 0, 0xffffffff, DPL_USER);
+
+  // Map cpu, and curproc
+  c->gdt[SEG_KCPU] = SEG(STA_W, &c->cpu, 8, 0);
+
   lgdt(c->gdt, sizeof(c->gdt));
+  loadgs(SEG_KCPU << 3);
+  
+  // Initialize cpu-local storage.
+  cpu = c;
+  proc = 0;
 }
 
 // Return the address of the PTE in page table pgdir
@@ -41,16 +51,16 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 
   pde = &pgdir[PDX(va)];
   if(*pde & PTE_P){
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+    pgtab = (pte_t*)p2v(PTE_ADDR(*pde));
   } else {
     if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
       return 0;
     // Make sure all those PTE_P bits are zero.
     memset(pgtab, 0, PGSIZE);
     // The permissions here are overly generous, but they can
-    // be further restricted by the permissions in the page table
+    // be further restricted by the permissions in the page table 
     // entries, if necessary.
-    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U | PTE_COW;
+    *pde = v2p(pgtab) | PTE_P | PTE_W | PTE_U;
   }
   return &pgtab[PTX(va)];
 }
@@ -63,7 +73,7 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
   char *a, *last;
   pte_t *pte;
-
+  
   a = (char*)PGROUNDDOWN((uint)va);
   last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
   for(;;){
@@ -85,7 +95,7 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 // current process's page table during system calls and interrupts;
 // page protection bits prevent user code from using the kernel's
 // mappings.
-//
+// 
 // setupkvm() and exec() set up every page table like this:
 //
 //   0..KERNBASE: user memory (text+data+stack+heap), mapped to
@@ -93,7 +103,7 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 //   KERNBASE..KERNBASE+EXTMEM: mapped to 0..EXTMEM (for I/O space)
 //   KERNBASE+EXTMEM..data: mapped to EXTMEM..V2P(data)
 //                for the kernel's instructions and r/o data
-//   data..KERNBASE+PHYSTOP: mapped to V2P(data)..PHYSTOP,
+//   data..KERNBASE+PHYSTOP: mapped to V2P(data)..PHYSTOP, 
 //                                  rw data + free physical memory
 //   0xfe000000..0: mapped direct (devices such as ioapic)
 //
@@ -101,38 +111,28 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 // between V2P(end) and the end of physical memory (PHYSTOP)
 // (directly addressable from end..P2V(PHYSTOP)).
 
-// This table defines the kernel's mappings, which are present in
-// every process's page table.
-static struct kmap {
-  void *virt;
-  uint phys_start;
-  uint phys_end;
-  int perm;
-} kmap[] = {
- { (void*)KERNBASE, 0,             EXTMEM,    PTE_W}, // I/O space
- { (void*)KERNLINK, V2P(KERNLINK), V2P(data), 0},     // kern text+rodata
- { (void*)data,     V2P(data),     PHYSTOP,   PTE_W}, // kern data+memory
- { (void*)DEVSPACE, DEVSPACE,      0,         PTE_W}, // more devices
-};
 
 // Set up kernel part of a page table.
 pde_t*
 setupkvm(void)
 {
   pde_t *pgdir;
-  struct kmap *k;
+  int i;
 
   if((pgdir = (pde_t*)kalloc()) == 0)
     return 0;
   memset(pgdir, 0, PGSIZE);
-  if (P2V(PHYSTOP) > (void*)DEVSPACE)
+  if (p2v(PHYSTOP) > (void*)DEVSPACE)
     panic("PHYSTOP too high");
-  for(k = kmap; k < &kmap[NELEM(kmap)]; k++)
-    if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
-                (uint)k->phys_start, k->perm) < 0) {
-      freevm(pgdir);
-      return 0;
-    }
+
+  // Use huge pages to map 0..PHYSTOP to KERNBASE
+  for(i = KERNBASE >> PDXSHIFT; i < (KERNBASE + PHYSTOP) >> PDXSHIFT; ++i)
+    pgdir[i] = ((i << PDXSHIFT) - KERNBASE) | PTE_P | PTE_W | PTE_PS;
+
+  // Use huge pages to map DEVSPACE..0 to DEVSPACE
+  for(i = DEVSPACE >> PDXSHIFT; i < NPDENTRIES; ++i)
+    pgdir[i] = (i << PDXSHIFT) | PTE_P | PTE_W | PTE_PS;
+
   return pgdir;
 }
 
@@ -150,31 +150,22 @@ kvmalloc(void)
 void
 switchkvm(void)
 {
-  lcr3(V2P(kpgdir));   // switch to the kernel page table
+  lcr3(v2p(kpgdir));   // switch to the kernel page table
 }
 
 // Switch TSS and h/w page table to correspond to process p.
 void
 switchuvm(struct proc *p)
 {
-  if(p == 0)
-    panic("switchuvm: no process");
-  if(p->kstack == 0)
-    panic("switchuvm: no kstack");
+  pushcli();
+  cpu->gdt[SEG_TSS] = SEG16(STS_T32A, &cpu->ts, sizeof(cpu->ts)-1, 0);
+  cpu->gdt[SEG_TSS].s = 0;
+  cpu->ts.ss0 = SEG_KDATA << 3;
+  cpu->ts.esp0 = (uint)proc->kstack + KSTACKSIZE;
+  ltr(SEG_TSS << 3);
   if(p->pgdir == 0)
     panic("switchuvm: no pgdir");
-
-  pushcli();
-  mycpu()->gdt[SEG_TSS] = SEG16(STS_T32A, &mycpu()->ts,
-                                sizeof(mycpu()->ts)-1, 0);
-  mycpu()->gdt[SEG_TSS].s = 0;
-  mycpu()->ts.ss0 = SEG_KDATA << 3;
-  mycpu()->ts.esp0 = (uint)p->kstack + KSTACKSIZE;
-  // setting IOPL=0 in eflags *and* iomb beyond the tss segment limit
-  // forbids I/O instructions (e.g., inb and outb) from user space
-  mycpu()->ts.iomb = (ushort) 0xFFFF;
-  ltr(SEG_TSS << 3);
-  lcr3(V2P(p->pgdir));  // switch to process's address space
+  lcr3(v2p(p->pgdir));  // switch to new address space
   popcli();
 }
 
@@ -184,13 +175,13 @@ void
 inituvm(pde_t *pgdir, char *init, uint sz)
 {
   char *mem;
-
+  
   if(sz >= PGSIZE)
     panic("inituvm: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
-  ++pg_refcount[V2P(mem) >> PGSHIFT];
+  mappages(pgdir, 0, PGSIZE, v2p(mem), PTE_W|PTE_U);
+  ++pg_refcount[v2p(mem) >> PGSHIFT];
   memmove(mem, init, sz);
 }
 
@@ -212,7 +203,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
       n = sz - i;
     else
       n = PGSIZE;
-    if(readi(ip, P2V(pa), offset+i, n) != n)
+    if(readi(ip, p2v(pa), offset+i, n) != n)
       return -1;
   }
   return 0;
@@ -240,13 +231,8 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
-      cprintf("allocuvm out of memory (2)\n");
-      deallocuvm(pgdir, newsz, oldsz);
-      kfree(mem);
-      return 0;
-    }
-    ++pg_refcount[V2P(mem) >> PGSHIFT];
+    mappages(pgdir, (char*)a, PGSIZE, v2p(mem), PTE_W|PTE_U);
+    ++pg_refcount[v2p(mem) >> PGSHIFT];
   }
   return newsz;
 }
@@ -268,13 +254,13 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   for(; a  < oldsz; a += PGSIZE){
     pte = walkpgdir(pgdir, (char*)a, 0);
     if(!pte)
-      a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
+      a += (NPTENTRIES - 1) * PGSIZE;
     else if((*pte & PTE_P) != 0){
       pa = PTE_ADDR(*pte);
       if(pa == 0)
         panic("kfree");
       if(--pg_refcount[pa >> PGSHIFT] == 0) {
-        char *v = P2V(pa);
+        char *v = p2v(pa);
         kfree(v);
       }
       *pte = 0;
@@ -293,9 +279,9 @@ freevm(pde_t *pgdir)
   if(pgdir == 0)
     panic("freevm: no pgdir");
   deallocuvm(pgdir, KERNBASE, 0);
-  for(i = 0; i < NPDENTRIES; i++){
+  for(i = 0; i < KERNBASE >> PDXSHIFT; i++){
     if(pgdir[i] & PTE_P){
-      char * v = P2V(PTE_ADDR(pgdir[i]));
+      char * v = p2v(PTE_ADDR(pgdir[i]));
       kfree(v);
     }
   }
@@ -316,14 +302,13 @@ clearpteu(pde_t *pgdir, char *uva)
 }
 
 // Given a parent process's page table, create a copy
-// of it for a child.
+// of it for a child. Use Copy-On-Write.
 pde_t*
 copyuvm(pde_t *pgdir, uint sz)
 {
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  char *mem;
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -332,18 +317,26 @@ copyuvm(pde_t *pgdir, uint sz)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
+    // Make this page unwriteable, so that Copy-On-Write can work
+    *pte &= ~PTE_W;
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
       goto bad;
-    memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
-      goto bad;
+    // Increase reference count for page pa
+    ++pg_refcount[pa >> PGSHIFT];
   }
+  // Flush TLB for original process
+  lcr3(v2p(pgdir));
+
   return d;
 
 bad:
   freevm(d);
+  // Even though we failed to copy, we should also flush TLB, 
+  // since some entries in the original process page table have
+  // been changed
+  lcr3(v2p(pgdir));
   return 0;
 }
 
@@ -359,7 +352,7 @@ uva2ka(pde_t *pgdir, char *uva)
     return 0;
   if((*pte & PTE_U) == 0)
     return 0;
-  return (char*)P2V(PTE_ADDR(*pte));
+  return (char*)p2v(PTE_ADDR(*pte));
 }
 
 // Copy len bytes from p to user address va in page table pgdir.
@@ -388,46 +381,6 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
   return 0;
 }
 
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-
-pde_t*
-copyuvmcow(pde_t *pgdir, uint sz)
-{
-  pde_t *d;
-  pte_t *pte;
-  uint pa, i, flags;
-
-  if((d = setupkvm()) == 0)
-    return 0;
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
-      panic("copyuvmcow: pte should exist");
-    if(!(*pte & PTE_P))
-      panic("copyuvmcow: page not present");
-    *pte &= ~PTE_W; // make the permissions for the parent_page read only
-    pa = PTE_ADDR(*pte);
-    flags = PTE_FLAGS(*pte);
-    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
-      goto bad;
-    //PTE_COW(*pte) = 1;
-    //*pte &= PTE_COW;
-    *pte |= PTE_COW;
-    ++pg_refcount[pa >> PGSHIFT];
-  }
-  lcr3(V2P(pgdir)); // Flush TLB for original process
-  return d;
-
-bad:
-  freevm(d);
-  lcr3(V2P(pgdir)); // Flush TLB for original process
-  return 0;
-}
-
 // Check for illegal memory access. 
 // Do Copy-On-Write if necessary.
 void pagefault(uint err_code)
@@ -437,20 +390,16 @@ void pagefault(uint err_code)
   pte_t *pte;
   char *mem;
 
-  if(myproc() == 0){
-    cprintf("pagefault with no user process from cpu %d, cr2=0x%x\n", cpuid(), va);
+  if(proc == 0){
+    cprintf("pagefault with no user process from cpu %d, cr2=0x%x\n", 
+            cpu->id, va);
     panic("pagefault");
   }
-
-  //if ((*pte &= PTE_COW) == 1)
-  //  cprintf("cebolinha");
-
-  //if ((*pte &= PTE_COW) == 0)
-  //  cprintf("cascao");
-
-  if(va >= KERNBASE || (pte = walkpgdir(myproc()->pgdir, (void*)va, 0)) == 0 || !(*pte & PTE_P) || !(*pte & PTE_U)){
-    cprintf("pid %d %s: illegal memory access on cpu %d addr 0x%x--kill proc\n", myproc()->pid, myproc()->name, cpuid(), va);
-    myproc()->killed = 1;
+  if(va >= KERNBASE || (pte = walkpgdir(proc->pgdir, (void*)va, 0)) == 0 
+         || !(*pte & PTE_P) || !(*pte & PTE_U)){
+    cprintf("pid %d %s: illegal memory access on cpu %d addr 0x%x--kill proc\n",
+            proc->pid, proc->name, cpu->id, va);
+    proc->killed = 1;
     return;
   }
   
@@ -459,23 +408,22 @@ void pagefault(uint err_code)
     panic("pagefault writeable");
   }else{
     pa = PTE_ADDR(*pte);
-    if(pg_refcount[pa >> PGSHIFT] == 1) {
-      *pte &= ~PTE_COW;
+    if(pg_refcount[pa >> PGSHIFT] == 1)
       *pte |= PTE_W;
-    } else if(pg_refcount[pa >> PGSHIFT] > 1) {
+    else if(pg_refcount[pa >> PGSHIFT] > 1) {
       mem = kalloc();
       if(mem == 0){
-        cprintf("pid %d %s: pagefault out of memory--kill proc\n", myproc()->pid, myproc()->name);
-	myproc()->killed = 1;
+        cprintf("pid %d %s: pagefault out of memory--kill proc\n", proc->pid, proc->name);
+	proc->killed = 1;
 	return;
       }
-      memmove(mem, (char*)P2V(pa), PGSIZE);
+      memmove(mem, (char*)p2v(pa), PGSIZE);
       --pg_refcount[pa >> PGSHIFT];
-      ++pg_refcount[V2P(mem) >> PGSHIFT];
-      *pte = V2P(mem) | PTE_P | PTE_W | PTE_U;
+      ++pg_refcount[v2p(mem) >> PGSHIFT];
+      *pte = v2p(mem) | PTE_P | PTE_W | PTE_U;
     } else {
       panic("pagefault wrong refcount");
     }
-    lcr3(V2P(myproc()->pgdir));
+    lcr3(v2p(proc->pgdir));
   }
 }

@@ -7,6 +7,8 @@
 #include "mmu.h"
 #include "proc.h"
 #include "virt2real.h"
+#include "num_pages.h"
+#include "forkcow.h"
 
 int
 sys_fork(void)
@@ -111,13 +113,18 @@ sys_virt2real(void)
 }
 
 int
-sys_forkcow(void)
+sys_num_pages(void)
 {
-  return forkcow();
+  struct proc *curproc = myproc();
+  uint size = curproc->sz;
+  // xv6 page size is 4096 bytes
+  pages = size/4096;
+  return pages;
 }
 
 int
-sys_num_pages(void)
+sys_forkcow(void)
 {
-  return num_pages();
+  pid = forkcow();
+  return pid;
 }

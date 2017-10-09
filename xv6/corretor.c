@@ -42,7 +42,7 @@ int caso1fork(void) {
 // N forks e waits consecutivos. existe um limite de 64
 // processos no xv6, então temos que garantir que N <= 64
 int caso2forkcow(void) {
-/*
+
   int n;
   int pid;
 
@@ -57,7 +57,7 @@ int caso2forkcow(void) {
       exit();   // fecha filho
     else
       if (wait() < 0) return FALSE;
-  } */
+  } 
   return TRUE;
 }
 
@@ -67,7 +67,7 @@ int caso2forkcow(void) {
 // 2 processos não crescem nem em pilha nem em heap.
 // pipes, wait e exit para comunicação e sync
 int caso3numpgs(void) {
-/*
+
   int fd[2];
   pipe(fd);
   int np = num_pages();
@@ -88,7 +88,7 @@ int caso3numpgs(void) {
     printf(stdout, "[--Caso 3.4] Parent leu %d == %d\n", np, atoi(answer));
     close(fd[0]);
     return atoi(answer) == np;
-  } */
+  } 
   return TRUE;
 }
 
@@ -101,7 +101,7 @@ int caso4mesmoaddr(void) {
   int fd[2];
   pipe(fd);
   char answer[20];
-  int pid = fork(); //forkcow();
+  int pid = forkcow();
   if (pid == 0) { // child manda addr de GLOBAL1_RO
     int addr = (int)virt2real((char*)&GLOBAL1_RO);
     if (addr < 0) addr = -addr; // atoi falha quando <0, nao sei pq
@@ -136,7 +136,7 @@ int caso5mesmoaddr(void) {
   int fd[2];
   pipe(fd);
   char answer[20];
-  int pid = fork(); //forkcow();
+  int pid = forkcow(); //forkcow();
   if (pid == 0) { // child manda addr de GLOBAL1_RO
     int addr = (int)virt2real((char*)&GLOBAL2_RW);
     if (addr < 0) addr = -addr; // atoi falha quando <0, nao sei pq
@@ -167,7 +167,7 @@ int caso5mesmoaddr(void) {
 // após um write em uma GLOBAL. usamos a GLOBAL1_RW
 // pipes, wait e exit para comunicação e sync
 int caso6cow(void) {
-/*
+
   int fd[2];
   pipe(fd);
   char answer[20];
@@ -194,7 +194,7 @@ int caso6cow(void) {
            atoi(answer));
     close(fd[0]);
     return addr != atoi(answer);
-  }*/
+  }
   return TRUE;
 }
 
